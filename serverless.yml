@@ -1,0 +1,91 @@
+service: serverless-personalize-example
+
+package:
+  exclude:
+    - .git/**
+    - data/**
+    - scripts/**
+    - node_modules/**
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  default_stage: dev
+  default_timeout: 30
+  region: ap-northeast-1
+  stage: ${opt:stage, self:custom.default_stage}
+  s3bucket: ${self:service}-${self:custom.stage}
+  # 出力されたarnを入力
+  campaign_arn: arn:aws:personalize:ap-northeast-1:xxxxxxxxxx:campaign/serverless-personalize-example-dev-campaign
+  pythonRequirements:
+    usePipenv: true
+    noDeploy: [pytest, jmespath, docutils, pip, python-dateutil, setuptools, s3transfer, six]
+
+provider:
+  name: aws
+  runtime: python3.7
+  stage: ${self:custom.stage}
+  region: ${self:custom.region}
+  timeout: ${self:custom.default_timeout}
+  environment:
+    CAMPAIGN_ARN: ${self:custom.campaign_arn}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - "personalize:*"
+      Resource: "*"
+
+functions:
+  get_reccomendation:
+    handler: handler.get_reccomendation
+    events:
+      - http:
+          path: get/{user_id}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                user_id: true
+
+resources:
+  Resources:
+    S3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.s3bucket}
+        AccessControl: Private
+    S3BucketPolicy:
+      Type: "AWS::S3::BucketPolicy"
+      Properties:
+        Bucket: !Ref S3Bucket
+        PolicyDocument:
+          Statement:
+            Action:
+              - "s3:GetObject"
+              - "s3:ListBucket"
+            Effect: "Allow"
+            Resource:
+              - !Sub "arn:aws:s3:::${self:custom.s3bucket}"
+              - !Sub "arn:aws:s3:::${self:custom.s3bucket}/*"
+            Principal:
+              Service: "personalize.amazonaws.com"
+    IAMRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        AssumeRolePolicyDocument:
+          Statement:
+            Effect: "Allow"
+            Action:
+              - "sts:AssumeRole"
+            Principal:
+              Service: "personalize.amazonaws.com"
+        ManagedPolicyArns:
+          - 'arn:aws:iam::aws:policy/service-role/AmazonPersonalizeFullAccess'
+
+  Outputs:
+    S3BucketName:
+      Value: !Ref S3Bucket
+    IAMRoleArn:
+      Value: !GetAtt [ IAMRole, Arn ]
